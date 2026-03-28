@@ -28,13 +28,14 @@ public class JobWorker implements Runnable {
             // If the queue is empty, this thread will sleep until a job is added.
             Job<?> job = queue.take();
             
+            job.markStarted();
             // Execute the job's logic.
             job.run();
+            job.markCompleted();
             
             // Record latency.
             if (metrics != null) {
-                long latency = System.currentTimeMillis() - job.getCreatedAt();
-                metrics.recordLatency(latency);
+                metrics.recordLatency(job.getLatencyMs());
             }
         } catch (InterruptedException e) {
             // If the thread is interrupted while waiting, we should stop.

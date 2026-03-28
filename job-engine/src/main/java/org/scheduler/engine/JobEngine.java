@@ -30,38 +30,55 @@ public class JobEngine {
      * @param keepAliveTimeSeconds How long to keep extra threads alive.
      */
     public JobEngine(int corePoolSize, int maxPoolSize, long keepAliveTimeSeconds) {
-        this.priorityQueue = new JobQueue();
+        this(corePoolSize, maxPoolSize, keepAliveTimeSeconds, 100); // Default capacity of 100
+    }
+
+    /**
+     * @param corePoolSize The base number of worker threads.
+     * @param maxPoolSize The ceiling of worker threads.
+     * @param keepAliveTimeSeconds How long to keep extra threads alive.
+     * @param queueCapacity The maximum number of jobs allowed in the priority queue.
+     */
+    public JobEngine(int corePoolSize, int maxPoolSize, long keepAliveTimeSeconds, int queueCapacity) {
+        this.priorityQueue = new JobQueue(queueCapacity);
         
-        // Use a SynchronousQueue to ensure that if all core threads are busy,
-        // new threads are created up to maxPoolSize.
-        // A LinkedBlockingQueue (unbounded) would cause maxPoolSize to be ignored.
+        // Increased bounded queue for the executor to ensure all JobWorker tasks can be buffered
+        // until a thread is available.
         this.executor = new ThreadPoolExecutor(
                 corePoolSize, 
                 maxPoolSize, 
                 keepAliveTimeSeconds, 
                 TimeUnit.SECONDS, 
-                new SynchronousQueue<>(),
+                new LinkedBlockingQueue<>(2000), 
                 new JobRejectionHandler()
         );
     }
 
     /**
      * Submits a job to the engine for asynchronous execution.
+     * This method will block if the internal queue is at capacity (Backpressure).
      * 
      * @param job The job to submit.
      * @return A CompletableFuture that completes when the job finishes.
      */
     public <V> CompletableFuture<V> submit(Job<V> job) {
-        // Step 1: Add the job to our priority-aware queue.
-        priorityQueue.put(job);
-        
-        // Track peak queue depth.
-        metrics.recordQueueDepth(priorityQueue.size());
-        
-        // Step 2: Signal the executor to run a JobWorker.
-        // When the pool is ready, a JobWorker will start and take() 
-        // the highest priority job from priorityQueue.
-        executor.execute(new JobWorker(priorityQueue, metrics, job));
+        try {
+            // Step 1: Add the job to our priority-aware queue.
+            // This will BLOCK if the queue is full (Backpressure).
+            priorityQueue.put(job);
+            
+            // Track peak queue depth.
+            metrics.recordQueueDepth(priorityQueue.size());
+            
+            // Step 2: Signal the executor to run a JobWorker.
+            executor.execute(new JobWorker(priorityQueue, metrics, job));
+            
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            job.getFuture().completeExceptionally(e);
+        } catch (RejectedExecutionException e) {
+            // Handled by JobRejectionHandler but we also return the future.
+        }
         
         // Return the future so the caller can track completion.
         return job.getFuture();

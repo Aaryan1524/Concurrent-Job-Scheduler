@@ -1,27 +1,43 @@
 package org.scheduler.engine;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * BenchmarkRunner compares sequential vs parallel execution performance.
+ * BenchmarkRunner compares performance across different thread counts
+ * and provides detailed latency percentiles.
  */
 public class BenchmarkRunner {
 
-    private static final int JOB_COUNT = 1000;
+    private static final int JOB_COUNT = 500;
     private static final int WORKLOAD_MS = 10;
-    private static final int THREAD_COUNT = 8;
+    private static final int QUEUE_CAPACITY = 100;
 
     public static void main(String[] args) throws Exception {
         System.out.println("Starting Benchmark...");
         System.out.println("Job Count: " + JOB_COUNT);
         System.out.println("Workload: " + WORKLOAD_MS + "ms per job");
-        System.out.println("Thread Count: " + THREAD_COUNT);
-        System.out.println("----------------------------------------");
+        System.out.println("Queue Capacity: " + QUEUE_CAPACITY);
+        System.out.println("----------------------------------------------------------------------------------");
+        System.out.printf("%-10s | %-15s | %-10s | %-10s | %-10s | %-10s | %-10s\n", 
+                          "Threads", "Throughput", "Avg Lat", "p50 Lat", "p95 Lat", "p99 Lat", "Peak Q");
+        System.out.println("----------------------------------------------------------------------------------");
 
-        // 1. Sequential Baseline
+        // Sequential Baseline
+        runSequential();
+
+        // Parallel Scaling
+        int[] threadCounts = {1, 2, 4, 8, 16, 32};
+        for (int threads : threadCounts) {
+            runParallel(threads);
+        }
+        System.out.println("----------------------------------------------------------------------------------");
+    }
+
+    private static void runSequential() {
         long startSeq = System.nanoTime();
         for (int i = 0; i < JOB_COUNT; i++) {
             simulateWork();
@@ -30,20 +46,23 @@ public class BenchmarkRunner {
         double seqDurationSec = (endSeq - startSeq) / 1_000_000_000.0;
         double seqThroughput = JOB_COUNT / seqDurationSec;
 
-        System.out.printf("Sequential Time: %.3f s\n", seqDurationSec);
-        System.out.printf("Sequential Throughput: %.2f jobs/sec\n", seqThroughput);
-        System.out.println("----------------------------------------");
+        System.out.printf("%-10s | %-15.2f | %-10.2f | %-10s | %-10s | %-10s | %-10s\n", 
+                          "SEQ (1)", seqThroughput, (double)WORKLOAD_MS, "-", "-", "-", "-");
+    }
 
-        // 2. Parallel Execution (JobEngine)
-        JobEngine engine = new JobEngine(THREAD_COUNT, THREAD_COUNT, 60);
-        List<CompletableFuture<?>> futures = new ArrayList<>();
+    private static void runParallel(int threadCount) throws Exception {
+        JobEngine engine = new JobEngine(threadCount, threadCount, 60, QUEUE_CAPACITY);
+        List<Job<Void>> jobs = new ArrayList<>();
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
 
         long startPar = System.nanoTime();
         for (int i = 0; i < JOB_COUNT; i++) {
-            futures.add(engine.submit(new Job<>("Job-" + i, JobPriority.MEDIUM, () -> {
+            Job<Void> job = new Job<>("Job-" + i, JobPriority.MEDIUM, () -> {
                 simulateWork();
                 return null;
-            })));
+            });
+            jobs.add(job);
+            futures.add(engine.submit(job));
         }
 
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
@@ -51,17 +70,23 @@ public class BenchmarkRunner {
         double parDurationSec = (endPar - startPar) / 1_000_000_000.0;
         double parThroughput = JOB_COUNT / parDurationSec;
 
-        MetricsCollector metrics = engine.getMetrics();
+        // Collect latencies
+        List<Long> latencies = new ArrayList<>();
+        long totalLat = 0;
+        for (Job<Void> job : jobs) {
+            long lat = job.getLatencyMs();
+            latencies.add(lat);
+            totalLat += lat;
+        }
+        Collections.sort(latencies);
 
-        System.out.printf("Parallel Time: %.3f s\n", parDurationSec);
-        System.out.printf("Parallel Throughput: %.2f jobs/sec\n", parThroughput);
-        System.out.printf("Average Latency: %.2f ms\n", metrics.getAverageLatencyMs());
-        System.out.printf("Peak Queue Depth: %d\n", metrics.getPeakQueueDepth());
-        System.out.println("----------------------------------------");
+        double avgLat = (double) totalLat / JOB_COUNT;
+        long p50 = latencies.get((int) (JOB_COUNT * 0.50));
+        long p95 = latencies.get((int) (JOB_COUNT * 0.95));
+        long p99 = latencies.get((int) (JOB_COUNT * 0.99));
 
-        // 3. Comparison
-        double speedup = parThroughput / seqThroughput;
-        System.out.printf("Speedup: %.2fx\n", speedup);
+        System.out.printf("%-10d | %-15.2f | %-10.2f | %-10d | %-10d | %-10d | %-10d\n", 
+                          threadCount, parThroughput, avgLat, p50, p95, p99, engine.getMetrics().getPeakQueueDepth());
 
         engine.shutdown();
     }

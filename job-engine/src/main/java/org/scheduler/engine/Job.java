@@ -19,6 +19,11 @@ public class Job<V> implements Runnable, Comparable<Job<V>> {
     private final String name;
     private final JobPriority priority;
     private final long createdAt;
+    
+    private final long submittedAt;
+    private long startedAt;
+    private long completedAt;
+
     private final List<Job<?>> predecessors = new ArrayList<>();
     
     // The actual work to be done.
@@ -39,8 +44,21 @@ public class Job<V> implements Runnable, Comparable<Job<V>> {
         this.name = name;
         this.priority = priority;
         this.createdAt = System.currentTimeMillis();
+        this.submittedAt = System.nanoTime();
         this.task = task;
         this.future = new CompletableFuture<>();
+    }
+
+    public void markStarted() {
+        this.startedAt = System.nanoTime();
+    }
+
+    public void markCompleted() {
+        this.completedAt = System.nanoTime();
+    }
+
+    public long getLatencyMs() {
+        return (completedAt - submittedAt) / 1_000_000;
     }
 
     /**
