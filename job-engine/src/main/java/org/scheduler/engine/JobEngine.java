@@ -101,12 +101,30 @@ public class JobEngine {
     }
 
     /**
-     * Shuts down the engine gracefully.
+     * Returns true if the engine has been shut down.
+     * @return true if shut down.
+     */
+    public boolean isShutdown() {
+        return executor.isShutdown();
+    }
+
+    /**
+     * Shuts down the engine gracefully using a default 60-second timeout.
      */
     public void shutdown() {
+        shutdown(60, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Shuts down the engine gracefully with a configurable timeout.
+     * @param timeout The maximum time to wait for termination.
+     * @param unit The time unit of the timeout argument.
+     */
+    public void shutdown(long timeout, TimeUnit unit) {
         executor.shutdown();
         try {
-            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+            if (!executor.awaitTermination(timeout, unit)) {
+                System.err.println("Termination timed out. Forcing shutdown.");
                 executor.shutdownNow();
             }
         } catch (InterruptedException e) {
