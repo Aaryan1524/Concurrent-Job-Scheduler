@@ -7,12 +7,15 @@ package org.scheduler.engine;
 public class JobWorker implements Runnable {
     
     private final JobQueue queue;
+    private final MetricsCollector metrics;
 
     /**
      * @param queue The shared queue to pull jobs from.
+     * @param metrics The metrics collector to record performance.
      */
-    public JobWorker(JobQueue queue) {
+    public JobWorker(JobQueue queue, MetricsCollector metrics) {
         this.queue = queue;
+        this.metrics = metrics;
     }
 
     @Override
@@ -24,6 +27,12 @@ public class JobWorker implements Runnable {
             
             // Execute the job's logic.
             job.run();
+            
+            // Record latency.
+            if (metrics != null) {
+                long latency = System.currentTimeMillis() - job.getCreatedAt();
+                metrics.recordLatency(latency);
+            }
         } catch (InterruptedException e) {
             // If the thread is interrupted while waiting, we should stop.
             Thread.currentThread().interrupt();

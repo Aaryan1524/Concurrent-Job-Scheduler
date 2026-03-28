@@ -73,6 +73,10 @@ public class Job<V> implements Runnable, Comparable<Job<V>> {
         }
     }
 
+    public long getCreatedAt() {
+        return createdAt;
+    }
+
     public CompletableFuture<V> getFuture() {
         return future;
     }

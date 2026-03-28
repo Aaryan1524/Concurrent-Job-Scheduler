@@ -15,6 +15,9 @@ public class JobEngine {
     // The executor pool that provides worker threads.
     private final ThreadPoolExecutor executor;
 
+    // Metrics collector to track performance.
+    private final MetricsCollector metrics = new MetricsCollector();
+
     /**
      * @param corePoolSize The base number of worker threads.
      * @param maxPoolSize The ceiling of worker threads.
@@ -44,13 +47,20 @@ public class JobEngine {
         // Step 1: Add the job to our priority-aware queue.
         priorityQueue.put(job);
         
+        // Track peak queue depth.
+        metrics.recordQueueDepth(priorityQueue.size());
+        
         // Step 2: Signal the executor to run a JobWorker.
         // When the pool is ready, a JobWorker will start and take() 
         // the highest priority job from priorityQueue.
-        executor.execute(new JobWorker(priorityQueue));
+        executor.execute(new JobWorker(priorityQueue, metrics));
         
         // Return the future so the caller can track completion.
         return job.getFuture();
+    }
+
+    public MetricsCollector getMetrics() {
+        return metrics;
     }
 
     /**
