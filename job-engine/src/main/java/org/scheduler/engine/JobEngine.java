@@ -1,0 +1,70 @@
+package org.scheduler.engine;
+
+import java.util.concurrent.*;
+
+/**
+ * JobEngine manages the lifecycle of concurrent jobs.
+ * It uses a ThreadPoolExecutor as its core engine and a 
+ * PriorityBlockingQueue to ensure high-priority jobs go first.
+ */
+public class JobEngine {
+    
+    // The internal queue that sorts our jobs.
+    private final JobQueue priorityQueue;
+    
+    // The executor pool that provides worker threads.
+    private final ThreadPoolExecutor executor;
+
+    /**
+     * @param corePoolSize The base number of worker threads.
+     * @param maxPoolSize The ceiling of worker threads.
+     * @param keepAliveTimeSeconds How long to keep extra threads alive.
+     */
+    public JobEngine(int corePoolSize, int maxPoolSize, long keepAliveTimeSeconds) {
+        this.priorityQueue = new JobQueue();
+        
+        // We use a LinkedBlockingQueue for the executor's internal task queue.
+        // This queue will hold our JobWorker tasks.
+        this.executor = new ThreadPoolExecutor(
+                corePoolSize, 
+                maxPoolSize, 
+                keepAliveTimeSeconds, 
+                TimeUnit.SECONDS, 
+                new LinkedBlockingQueue<>()
+        );
+    }
+
+    /**
+     * Submits a job to the engine for asynchronous execution.
+     * 
+     * @param job The job to submit.
+     * @return A CompletableFuture that completes when the job finishes.
+     */
+    public <V> CompletableFuture<V> submit(Job<V> job) {
+        // Step 1: Add the job to our priority-aware queue.
+        priorityQueue.put(job);
+        
+        // Step 2: Signal the executor to run a JobWorker.
+        // When the pool is ready, a JobWorker will start and take() 
+        // the highest priority job from priorityQueue.
+        executor.execute(new JobWorker(priorityQueue));
+        
+        // Return the future so the caller can track completion.
+        return job.getFuture();
+    }
+
+    /**
+     * Shuts down the engine gracefully.
+     */
+    public void shutdown() {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+}
