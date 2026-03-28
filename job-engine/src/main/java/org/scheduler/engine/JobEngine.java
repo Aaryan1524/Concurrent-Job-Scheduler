@@ -32,14 +32,15 @@ public class JobEngine {
     public JobEngine(int corePoolSize, int maxPoolSize, long keepAliveTimeSeconds) {
         this.priorityQueue = new JobQueue();
         
-        // We use a LinkedBlockingQueue for the executor's internal task queue.
-        // This queue will hold our JobWorker tasks.
+        // Use a SynchronousQueue to ensure that if all core threads are busy,
+        // new threads are created up to maxPoolSize.
+        // A LinkedBlockingQueue (unbounded) would cause maxPoolSize to be ignored.
         this.executor = new ThreadPoolExecutor(
                 corePoolSize, 
                 maxPoolSize, 
                 keepAliveTimeSeconds, 
                 TimeUnit.SECONDS, 
-                new LinkedBlockingQueue<>(),
+                new SynchronousQueue<>(),
                 new JobRejectionHandler()
         );
     }

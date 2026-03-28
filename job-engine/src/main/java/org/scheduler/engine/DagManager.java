@@ -33,7 +33,17 @@ public class DagManager {
                         .toArray(CompletableFuture[]::new);
 
                 CompletableFuture.allOf(predecessorFutures)
-                        .thenRunAsync(() -> engine.submit(job));
+                        .handle((v, ex) -> {
+                            if (ex != null) {
+                                // If a predecessor fails, this job fails too.
+                                job.getFuture().completeExceptionally(
+                                    new RuntimeException("Predecessor failed, cannot execute: " + job.getName(), ex));
+                            } else {
+                                // All predecessors succeeded, submit this job.
+                                engine.submit(job);
+                            }
+                            return null;
+                        });
             }
         }
     }
