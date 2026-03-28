@@ -1,5 +1,8 @@
 package org.scheduler.engine;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -16,6 +19,7 @@ public class Job<V> implements Runnable, Comparable<Job<V>> {
     private final String name;
     private final JobPriority priority;
     private final long createdAt;
+    private final List<Job<?>> predecessors = new ArrayList<>();
     
     // The actual work to be done.
     private final Callable<V> task;
@@ -37,6 +41,20 @@ public class Job<V> implements Runnable, Comparable<Job<V>> {
         this.createdAt = System.currentTimeMillis();
         this.task = task;
         this.future = new CompletableFuture<>();
+    }
+
+    /**
+     * Defines that this job depends on the completion of the provided jobs.
+     * @param predecessors The jobs that must complete before this one starts.
+     * @return This job for method chaining.
+     */
+    public Job<V> dependsOn(Job<?>... predecessors) {
+        this.predecessors.addAll(Arrays.asList(predecessors));
+        return this;
+    }
+
+    public List<Job<?>> getPredecessors() {
+        return predecessors;
     }
 
     /**
