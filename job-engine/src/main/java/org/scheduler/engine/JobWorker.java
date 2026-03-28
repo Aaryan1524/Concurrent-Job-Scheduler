@@ -8,14 +8,17 @@ public class JobWorker implements Runnable {
     
     private final JobQueue queue;
     private final MetricsCollector metrics;
+    private final Job<?> submittedJob; // The job that triggered this worker
 
     /**
      * @param queue The shared queue to pull jobs from.
      * @param metrics The metrics collector to record performance.
+     * @param submittedJob The job that triggered this worker (for tracking).
      */
-    public JobWorker(JobQueue queue, MetricsCollector metrics) {
+    public JobWorker(JobQueue queue, MetricsCollector metrics, Job<?> submittedJob) {
         this.queue = queue;
         this.metrics = metrics;
+        this.submittedJob = submittedJob;
     }
 
     @Override
@@ -37,5 +40,9 @@ public class JobWorker implements Runnable {
             // If the thread is interrupted while waiting, we should stop.
             Thread.currentThread().interrupt();
         }
+    }
+
+    public Job<?> getSubmittedJob() {
+        return submittedJob;
     }
 }

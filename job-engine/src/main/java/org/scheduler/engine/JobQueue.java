@@ -34,6 +34,15 @@ public class JobQueue {
     }
 
     /**
+     * Removes a specific job from the queue if it exists.
+     * @param job The job to remove.
+     * @return true if removed, false otherwise.
+     */
+    public boolean remove(Job<?> job) {
+        return internalQueue.remove(job);
+    }
+
+    /**
      * Returns the number of jobs currently in the queue.
      * @return The size of the queue.
      */

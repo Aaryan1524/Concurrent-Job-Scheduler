@@ -1,5 +1,8 @@
 package org.scheduler.engine;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.*;
 
 /**
@@ -18,6 +21,9 @@ public class JobEngine {
     // Metrics collector to track performance.
     private final MetricsCollector metrics = new MetricsCollector();
 
+    // Dead-letter list for rejected jobs.
+    private final List<Job<?>> deadLetterJobs = new CopyOnWriteArrayList<>();
+
     /**
      * @param corePoolSize The base number of worker threads.
      * @param maxPoolSize The ceiling of worker threads.
@@ -33,7 +39,8 @@ public class JobEngine {
                 maxPoolSize, 
                 keepAliveTimeSeconds, 
                 TimeUnit.SECONDS, 
-                new LinkedBlockingQueue<>()
+                new LinkedBlockingQueue<>(),
+                new JobRejectionHandler()
         );
     }
 
@@ -53,7 +60,7 @@ public class JobEngine {
         // Step 2: Signal the executor to run a JobWorker.
         // When the pool is ready, a JobWorker will start and take() 
         // the highest priority job from priorityQueue.
-        executor.execute(new JobWorker(priorityQueue, metrics));
+        executor.execute(new JobWorker(priorityQueue, metrics, job));
         
         // Return the future so the caller can track completion.
         return job.getFuture();
@@ -61,6 +68,36 @@ public class JobEngine {
 
     public MetricsCollector getMetrics() {
         return metrics;
+    }
+
+    public List<Job<?>> getDeadLetterJobs() {
+        return Collections.unmodifiableList(new ArrayList<>(deadLetterJobs));
+    }
+
+    /**
+     * Custom RejectionHandler to capture jobs that the executor cannot handle.
+     */
+    private class JobRejectionHandler implements RejectedExecutionHandler {
+        @Override
+        public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
+            if (r instanceof JobWorker) {
+                JobWorker worker = (JobWorker) r;
+                Job<?> job = worker.getSubmittedJob();
+                
+                if (job != null) {
+                    System.err.println("Rejected Job: " + job.getName() + " (ID: " + job.getJobId() + ")");
+                    
+                    // Remove from priority queue since it won't be picked up
+                    priorityQueue.remove(job);
+                    
+                    // Add to dead letter list
+                    deadLetterJobs.add(job);
+                    
+                    // Fail the future so the caller knows it was rejected
+                    job.getFuture().completeExceptionally(new RejectedExecutionException("Job rejected by engine"));
+                }
+            }
+        }
     }
 
     /**
